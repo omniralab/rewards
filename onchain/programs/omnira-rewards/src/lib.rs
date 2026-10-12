@@ -20,6 +20,11 @@ pub const BUDGET_SEED: &[u8] = b"budget";
 pub const VAULT_SEED: &[u8] = b"vault";
 pub const BOUNTY_SEED: &[u8] = b"bounty";
 
+/// Ile po terminie budżetu zwrot bez poświadczyciela staje się możliwy.
+/// Wcześniej obcy mógłby cofnąć blokadę za odbytą zmianę, zanim
+/// poświadczyciel zdąży wypłacić - pracownik straciłby zarobione pieniądze.
+pub const REFUND_GRACE_SECS: i64 = 3 * 24 * 3600;
+
 #[program]
 pub mod omnira_rewards {
     use super::*;
@@ -170,15 +175,20 @@ pub mod omnira_rewards {
         Ok(())
     }
 
-    /// Zmiana się nie odbyła: blokada wraca do puli firmy. Przed terminem
-    /// może to zrobić tylko poświadczyciel, po terminie każdy - żeby środki
-    /// nie utknęły, gdy Omnira przestanie działać.
+    /// Zmiana się nie odbyła: blokada wraca do puli firmy. Poświadczyciel
+    /// może to zrobić zawsze, każdy inny dopiero po terminie i karencji - żeby
+    /// środki nie utknęły, gdy Omnira przestanie działać, ale też żeby nikt
+    /// nie wyprzedził spóźnionej wypłaty za odbytą zmianę.
     pub fn refund_bounty(ctx: Context<RefundBounty>) -> Result<()> {
         let budget = &mut ctx.accounts.budget;
         let now = Clock::get()?.unix_timestamp;
 
         if ctx.accounts.caller.key() != budget.attestor {
-            require!(now >= budget.expires_at, RewardsError::NotExpired);
+            let otwarte_od = budget
+                .expires_at
+                .checked_add(REFUND_GRACE_SECS)
+                .ok_or(RewardsError::MathOverflow)?;
+            require!(now >= otwarte_od, RewardsError::NotExpired);
         }
 
         let bounty = &mut ctx.accounts.bounty;
@@ -477,7 +487,7 @@ pub enum RewardsError {
     WrongAttestor,
     #[msg("Bounty is not in the accepted state")]
     InvalidState,
-    #[msg("Only the attestor can refund before the budget expires")]
+    #[msg("Only the attestor can refund before expiry plus the grace period")]
     NotExpired,
     #[msg("Arithmetic overflow")]
     MathOverflow,

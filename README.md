@@ -110,8 +110,8 @@ confirm or reject a shift (attestor).
 | `create_budget` | company | opens a vault for one shift: per-worker cap, expiry, agent and attestor keys |
 | `fund` | company | moves USDC into the vault |
 | `accept_bounty` | worker + agent | locks the bounty; one bounty per worker per shift, within the cap and the unlocked balance |
-| `release` | attestor | shift verified: the vault pays the worker (token account created if needed) |
-| `refund_bounty` | attestor, or anyone after expiry | shift not done: the lock returns to the company pool, so funds can never get stuck |
+| `release` | attestor | shift verified: the vault pays the worker (token account created if needed), also after expiry |
+| `refund_bounty` | attestor, or anyone 3 days after expiry | shift not done: the lock returns to the company pool, so funds can never get stuck; the grace period stops anyone from front-running a late payout |
 | `withdraw` | company | takes back unlocked funds only |
 
 The golden path from the video ran on devnet with real transactions - links in
@@ -122,12 +122,15 @@ with demo keys and a devnet test token; setup in `.env.example` and
 
 ```bash
 cd onchain
-./test.sh                      # 11 LiteSVM tests: golden path + abuse cases
+./test.sh                      # 13 LiteSVM tests: golden path + abuse cases
 ./build.sh                     # SBPFv3 build (platform-tools v1.56)
 cd programs/omnira-rewards && cargo run --example devnet   # golden path on devnet
 ```
 
-Not audited - devnet only.
+Not audited - devnet only. Known gaps before mainnet: a USDC-only mint
+allowlist (a company could otherwise fund a budget with its own mint that has
+freeze or permanent-delegate powers and pull locked funds), closing settled
+accounts to reclaim rent, upgrade authority on a multisig.
 
 ## Roadmap
 

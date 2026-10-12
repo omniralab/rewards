@@ -1,7 +1,8 @@
 # Omnira Rewards escrow on Solana devnet
 
 Program: [`GPdXwqT253UXiN1j4k115NXrvLf2V7FP4TiaiE8kKeYc`](https://explorer.solana.com/address/GPdXwqT253UXiN1j4k115NXrvLf2V7FP4TiaiE8kKeYc?cluster=devnet)
-(deployed 12.10.2026, SBPFv3, 259 KB).
+(deployed 12.10.2026, SBPFv3; upgraded 13.10.2026 with a 3-day grace period
+before anyone but the attestor can refund a lock, 263 KB).
 
 Golden path run from `cargo run --example devnet` (test token tUSDC, 6 decimals like USDC):
 

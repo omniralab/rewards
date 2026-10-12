@@ -167,9 +167,9 @@ fn bounty(w: &Swiat, worker: &Pubkey) -> Bounty {
     Bounty::try_deserialize(&mut acc.data.as_slice()).unwrap()
 }
 
-fn przewin_po_terminie(w: &mut Swiat) {
+fn przewin(w: &mut Swiat, sekundy: i64) {
     let mut clock = w.svm.get_sysvar::<Clock>();
-    clock.unix_timestamp += 2 * GODZINA;
+    clock.unix_timestamp += sekundy;
     w.svm.set_sysvar::<Clock>(&clock);
 }
 
@@ -380,19 +380,43 @@ fn zwrot_przed_terminem_tylko_przez_poswiadczyciela() {
 }
 
 #[test]
-fn po_terminie_kazdy_odblokowuje_srodki_i_nikt_nie_przyjmuje_ofert() {
+fn po_terminie_nikt_nie_przyjmuje_ofert() {
+    let mut w = swiat(50 * USDC, 500 * USDC);
+    przewin(&mut w, 2 * GODZINA);
+    assert_err(przyjmij(&mut w, &Keypair::new(), 20 * USDC), "BudgetExpired");
+}
+
+#[test]
+fn spozniona_wyplata_po_terminie_przechodzi_i_obcy_jej_nie_wyprzedzi() {
     let mut w = swiat(50 * USDC, 500 * USDC);
     let oksana = Keypair::new();
     przyjmij(&mut w, &oksana, 20 * USDC).unwrap();
 
-    przewin_po_terminie(&mut w);
-    assert_err(przyjmij(&mut w, &Keypair::new(), 20 * USDC), "BudgetExpired");
+    // Termin minął, poświadczyciel jeszcze nie wypłacił. Obcy próbuje
+    // cofnąć blokadę za odbytą zmianę - karencja na to nie pozwala.
+    przewin(&mut w, 2 * GODZINA);
+    let obcy = Keypair::new();
+    w.svm.airdrop(&obcy.pubkey(), 1_000_000_000).unwrap();
+    let ix = refund_ix(&w, &obcy.pubkey(), &oksana.pubkey());
+    assert_err(send(&mut w.svm, ix, &[&obcy]), "NotExpired");
 
+    zwolnij(&mut w, &oksana.pubkey()).unwrap();
+    assert_eq!(saldo(&w.svm, &ata(&oksana.pubkey(), &w.mint)), 20 * USDC);
+}
+
+#[test]
+fn po_karencji_kazdy_odblokowuje_srodki_gdy_omnira_milczy() {
+    let mut w = swiat(50 * USDC, 500 * USDC);
+    let oksana = Keypair::new();
+    przyjmij(&mut w, &oksana, 20 * USDC).unwrap();
+
+    przewin(&mut w, GODZINA + omnira_rewards::REFUND_GRACE_SECS);
     let obcy = Keypair::new();
     w.svm.airdrop(&obcy.pubkey(), 1_000_000_000).unwrap();
     let ix = refund_ix(&w, &obcy.pubkey(), &oksana.pubkey());
     send(&mut w.svm, ix, &[&obcy]).unwrap();
     assert_eq!(budzet(&w).locked, 0);
+    assert_eq!(bounty(&w, &oksana.pubkey()).state, BountyState::Refunded);
 }
 
 #[test]
