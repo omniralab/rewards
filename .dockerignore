@@ -1,0 +1,7 @@
+node_modules
+.next
+*.tsbuildinfo
+.env*
+# program na Solanie i jego artefakty (target/ ma kilka GB) - strona ich nie używa
+onchain
+docs

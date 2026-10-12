@@ -18,11 +18,12 @@ layer, built from two parts:
   human, the reward is held in escrow and settles to the worker's wallet once
   the shift is verified (check-in and check-out).
 
-> **Status: hackathon prototype.** This repository is a clickable front-end
-> prototype built for the Colosseum hackathon. The chain, wallets, escrow and
-> people are **simulated**: there is no backend, no database and no real
-> transaction. Transaction signatures and wallet addresses are illustrative.
-> See [Roadmap](#roadmap) for the path to production.
+> **Status: hackathon prototype.** The web app in `src/` is a clickable
+> front-end prototype built for the Colosseum hackathon: its people, wallets
+> and transaction signatures are illustrative. The **escrow program in
+> [`onchain/`](onchain) is real and live on Solana devnet** - see
+> [On-chain escrow](#on-chain-escrow-live-on-devnet). See [Roadmap](#roadmap)
+> for the path to production.
 
 ## What to look at
 
@@ -94,13 +95,41 @@ docker run -p 3000:3000 omnira-rewards   # http://localhost:3000
 Code identifiers and comments are partly in Polish - the team is based in
 Poland.
 
+## On-chain escrow (live on devnet)
+
+Program [`GPdXwqT253UXiN1j4k115NXrvLf2V7FP4TiaiE8kKeYc`](https://explorer.solana.com/address/GPdXwqT253UXiN1j4k115NXrvLf2V7FP4TiaiE8kKeYc?cluster=devnet)
+(Anchor, Rust) holds a company's USDC budget for a shift and pays a bounty
+only after the shift is verified. Omnira never owns the funds: the vault is
+controlled by the program, Omnira's keys can only lock a bounty (agent) and
+confirm or reject a shift (attestor).
+
+| Instruction | Signed by | What it does |
+|---|---|---|
+| `create_budget` | company | opens a vault for one shift: per-worker cap, expiry, agent and attestor keys |
+| `fund` | company | moves USDC into the vault |
+| `accept_bounty` | worker + agent | locks the bounty; one bounty per worker per shift, within the cap and the unlocked balance |
+| `release` | attestor | shift verified: the vault pays the worker (token account created if needed) |
+| `refund_bounty` | attestor, or anyone after expiry | shift not done: the lock returns to the company pool, so funds can never get stuck |
+| `withdraw` | company | takes back unlocked funds only |
+
+The golden path from the video ran on devnet with real transactions - links in
+[`onchain/DEVNET.md`](onchain/DEVNET.md).
+
+```bash
+cd onchain
+./test.sh                      # 11 LiteSVM tests: golden path + abuse cases
+./build.sh                     # SBPFv3 build (platform-tools v1.56)
+cd programs/omnira-rewards && cargo run --example devnet   # golden path on devnet
+```
+
+Not audited - devnet only.
+
 ## Roadmap
 
 What it takes to turn the prototype into a working product:
 
-1. **Escrow program on Solana** - an on-chain program that holds a company's
-   USDC budget, locks a bounty when a worker accepts and releases it on
-   verified check-out (or refunds it if the shift is cancelled).
+1. **Escrow program on Solana** - done on devnet (see above). Next: security
+   review and audit before mainnet, upgrade authority on a multisig.
 2. **Worker wallets without crypto friction** - embedded wallets created at
    onboarding, so workers never handle seed phrases, with an off-ramp to a
    local bank account.

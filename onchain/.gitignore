@@ -1,0 +1,10 @@
+.anchor
+.DS_Store
+target
+**/*.rs.bk
+node_modules
+test-ledger
+.yarn
+.surfpool
+# klucze programu i portfeli żyją w ~/.config/solana, nigdy w repo
+*-keypair.json
