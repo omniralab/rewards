@@ -1,0 +1,7 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" fill="none">
+  <style>
+    .znak { stroke: #0e0e10; }
+    @media (prefers-color-scheme: dark) { .znak { stroke: #f5f5f6; } }
+  </style>
+  <circle class="znak" cx="50" cy="50" r="37" stroke-width="11"/>
+</svg>
