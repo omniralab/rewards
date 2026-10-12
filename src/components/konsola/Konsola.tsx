@@ -1,9 +1,10 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Activity, Bot, Building2, CalendarClock, Check, Gift, LayoutGrid, Lock, Settings, ShieldCheck, TriangleAlert, Undo2, Users, Wallet, Zap } from "lucide-react";
+import { Activity, Bot, Building2, CalendarClock, Check, ExternalLink, Gift, LayoutGrid, Lock, Settings, ShieldCheck, TriangleAlert, Undo2, Users, Wallet, Zap } from "lucide-react";
 import { useSymulacja, type StatusEscrow, type StatusKandydata } from "@/lib/symulacja";
 import { FIRMA, ZMIANA, liczba, skrot, usdc } from "@/lib/dane";
+import { explorerTx } from "@/lib/live/klient";
 import { NaSolanie, SolanaZnak, UsdcZnak, Znak } from "../marka";
 
 /* Panel firmy (agencja / zakład) - widok z produkcji Omniry. Ten sam stan
@@ -66,6 +67,8 @@ export function PasekBoczny() {
 }
 
 export function Gorny() {
+  // Symulacja udaje produkcję (Mainnet); tryb Live mówi prawdę: devnet.
+  const live = useSymulacja((s) => s.live);
   return (
     <header className="flex items-center justify-between border-b border-hair bg-surface px-7 py-3.5">
       <div>
@@ -78,7 +81,7 @@ export function Gorny() {
           <span className="ml-1 h-4 w-7 rounded-full bg-positive p-0.5"><span className="block h-3 w-3 translate-x-3 rounded-full bg-white" /></span>
         </span>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-hair bg-bg px-3 py-1.5 text-[12px] font-semibold">
-          <SolanaZnak className="h-3 w-auto" /> Mainnet
+          <SolanaZnak className="h-3 w-auto" /> {live ? "Devnet" : "Mainnet"}
         </span>
         <div className="grid h-9 w-9 place-items-center rounded-full bg-ink text-[12px] font-bold text-[var(--on-cta)]">JK</div>
       </div>
@@ -288,7 +291,13 @@ export function RejestrEscrow() {
                   <span className="mono text-[11px] text-faint">{w.czas}</span>
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{w.opis}</span>
-                    <span className="mono block text-[10.5px] text-faint">{skrot(w.sig, 6, 6)}</span>
+                    {w.naLancuchu ? (
+                      <a href={explorerTx(w.sig)} target="_blank" rel="noreferrer" className="mono inline-flex items-center gap-1 text-[10.5px] text-positive hover:underline">
+                        {skrot(w.sig, 6, 6)} · devnet <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : (
+                      <span className="mono block text-[10.5px] text-faint">{skrot(w.sig, 6, 6)}</span>
+                    )}
                   </span>
                   <span className="num text-right font-semibold">{usdc(w.kwota)}</span>
                   <span className={`inline-flex items-center justify-end gap-1 text-[12px] font-semibold ${st.klasa}`}>

@@ -32,6 +32,7 @@ layer, built from two parts:
 | [`/`](https://rewards.omniralab.com) | Landing page with an interactive phone in the hero (a bounty arrives after ~2 s) |
 | [`/app`](https://rewards.omniralab.com/app) | Company console and worker phone side by side, sharing one live state |
 | [`/phone`](https://rewards.omniralab.com/phone) | Worker app on its own, full screen on mobile |
+| [`/app?live=1`](https://rewards.omniralab.com/app?live=1) | **Live mode:** the hero worker's budget, escrow lock and payout run as real transactions of the escrow program on Solana devnet; ledger rows marked *devnet* open in Solana Explorer |
 
 ### The golden path (`/app`)
 
@@ -50,6 +51,7 @@ Keyboard shortcuts on `/app` and on `/phone` (desktop):
 | `Space` / `→` | Next step |
 | `1`-`6` | Jump to phase: gap, bounty, accepted, on site, settling, settled |
 | `R` | Reset |
+| `L` | Toggle Live mode (real devnet transactions) |
 | `H` | Hide the company console (phone only) |
 | `?` | Show shortcuts |
 
@@ -113,7 +115,10 @@ confirm or reject a shift (attestor).
 | `withdraw` | company | takes back unlocked funds only |
 
 The golden path from the video ran on devnet with real transactions - links in
-[`onchain/DEVNET.md`](onchain/DEVNET.md).
+[`onchain/DEVNET.md`](onchain/DEVNET.md). The web app's Live mode
+(`src/app/api/live`, `src/lib/live`) calls the same program from the server
+with demo keys and a devnet test token; setup in `.env.example` and
+`scripts/live-setup.mjs`.
 
 ```bash
 cd onchain

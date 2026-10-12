@@ -14,6 +14,7 @@ import {
   type Misja,
   type Transakcja,
 } from "./dane";
+import { liveNaSerwerze, wywolajLive } from "./live/klient";
 
 /* Jeden stan na cały pokaz. Telefon pracownika i panel firmy czytają to samo,
  * więc klik po jednej stronie od razu widać po drugiej.
@@ -37,7 +38,10 @@ export type StatusKandydata = "matched" | "offered" | "accepted" | "on-site" | "
 export type Kandydat = { id: string; imie: string; wynik: number; poziom: string; status: StatusKandydata; bohater?: boolean };
 
 export type StatusEscrow = "reserved" | "locked" | "released" | "returned";
-export type WpisEscrow = { id: string; czas: string; opis: string; kwota: number; status: StatusEscrow; sig: string };
+/* naLancuchu: podpis jest prawdziwą transakcją na devnecie (tryb Live). */
+export type WpisEscrow = { id: string; czas: string; opis: string; kwota: number; status: StatusEscrow; sig: string; naLancuchu?: boolean };
+
+export type PodpisyLive = { budzet?: string; blokada?: string; wyplata?: string };
 
 export type Toast = { id: number; tytul: string; opis?: string; ton: "usdc" | "om" | "info" };
 
@@ -59,6 +63,14 @@ type Stan = {
   wymienione: string[];
   konsolaUkryta: boolean;
 
+  /* Tryb Live: bohaterka robi prawdziwe transakcje na devnecie, reszta
+   * zostaje symulacją. Ustawienie przeżywa reset, przebieg nie. */
+  live: boolean;
+  liveDostepny: boolean;
+  liveRun: string | null;
+  liveSig: PodpisyLive;
+  liveBlad: string | null;
+
   ustawBonus: (n: number) => void;
   wystaw: () => void;
   otworzOferte: () => void;
@@ -75,6 +87,8 @@ type Stan = {
   reset: (start?: Faza) => void;
   przelaczKonsole: () => void;
   zgasToast: (id: number) => void;
+  sprawdzLive: (wlacz?: boolean) => void;
+  przelaczLive: () => void;
 };
 
 /* Pokolenie timerów: reset podnosi licznik, a callback ze starego pokolenia
@@ -105,7 +119,14 @@ const stanPoczatkowy = () => ({
   escrow: [] as WpisEscrow[],
   toasty: [] as Toast[],
   wymienione: [] as string[],
+  liveRun: null as string | null,
+  liveSig: {} as PodpisyLive,
+  liveBlad: null as string | null,
 });
+
+/* Kroki na łańcuchu idą po kolei (blokada wymaga budżetu, wypłata blokady),
+ * a symulacja nie czeka: podpis podmienia się, gdy transakcja się potwierdzi. */
+let kolejkaLive: Promise<void> = Promise.resolve();
 
 export const useSymulacja = create<Stan>((set, get) => {
   const toast = (t: Omit<Toast, "id">) => {
@@ -133,9 +154,34 @@ export const useSymulacja = create<Stan>((set, get) => {
   const zmienEscrow = (pasuje: (w: WpisEscrow) => boolean, status: StatusEscrow) =>
     set((s) => ({ escrow: s.escrow.map((w) => (pasuje(w) ? { ...w, status } : w)) }));
 
+  const podpiszEscrow = (id: string, sig: string) =>
+    set((s) => ({ escrow: s.escrow.map((w) => (w.id === id ? { ...w, sig, naLancuchu: true } : w)) }));
+
+  /* Jeden krok na devnecie w kolejce. Reset (nowe pokolenie) albo wcześniejszy
+   * błąd ucinają resztę przebiegu - pokaz leci dalej jako symulacja. */
+  const naLancuchu = <T,>(wywolanie: () => Promise<T> | null, poSukcesie: (r: T) => void) => {
+    if (!get().live) return;
+    const p = pokolenie;
+    kolejkaLive = kolejkaLive.then(async () => {
+      if (p !== pokolenie || get().liveBlad) return;
+      try {
+        const obietnica = wywolanie();
+        if (!obietnica) return;
+        const r = await obietnica;
+        if (p === pokolenie) poSukcesie(r);
+      } catch (e) {
+        if (p !== pokolenie) return;
+        set({ liveBlad: e instanceof Error ? e.message : "Devnet error" });
+        toast({ tytul: "Devnet unavailable", opis: "Continuing in simulation", ton: "info" });
+      }
+    });
+  };
+
   return {
     ...stanPoczatkowy(),
     konsolaUkryta: false,
+    live: false,
+    liveDostepny: false,
 
     ustawBonus: (n) => set({ bonus: n }),
 
@@ -148,6 +194,13 @@ export const useSymulacja = create<Stan>((set, get) => {
         kandydaci: s.kandydaci.map((k) => ({ ...k, status: "offered" })),
       }));
       dopiszEscrow({ id: "pool", opis: `Bounty pool · ${ZMIANA.brakuje} × ${bonus} USDC`, kwota: ZMIANA.brakuje * bonus, status: "reserved" });
+      naLancuchu(
+        () => wywolajLive<{ run: string; sig: string }>({ krok: "budzet" }),
+        (r) => {
+          set((s) => ({ liveRun: r.run, liveSig: { ...s.liveSig, budzet: r.sig } }));
+          podpiszEscrow("pool", r.sig);
+        },
+      );
       // Pozostali dopasowani akceptują sami, w rytmie, który na nagraniu
       // wygląda jak prawdziwe odpowiedzi z telefonów.
       KANDYDACI.forEach((k) => {
@@ -169,6 +222,16 @@ export const useSymulacja = create<Stan>((set, get) => {
       set({ faza: "przyjeto", ekran: "escrow", powiadomienie: false });
       ustawKandydata(PRACOWNIK.numer, "accepted");
       dopiszEscrow({ id: `lock-${PRACOWNIK.numer}`, opis: `Escrow lock · ${PRACOWNIK.numer}`, kwota: get().bonus, status: "locked" });
+      naLancuchu(
+        () => {
+          const run = get().liveRun;
+          return run ? wywolajLive({ krok: "przyjecie", run, kwota: get().bonus }) : null;
+        },
+        (r) => {
+          set((s) => ({ liveSig: { ...s.liveSig, blokada: r.sig } }));
+          podpiszEscrow(`lock-${PRACOWNIK.numer}`, r.sig);
+        },
+      );
     },
 
     zamelduj: () => {
@@ -184,6 +247,22 @@ export const useSymulacja = create<Stan>((set, get) => {
     zakoncz: () => {
       if (get().faza !== "na-miejscu") return;
       set({ faza: "rozliczanie", ekran: "shift" });
+      // Na łańcuchu wypłata rusza od razu; wpis z prawdziwym podpisem
+      // dochodzi do rejestru, gdy transakcja się potwierdzi.
+      naLancuchu(
+        () => {
+          const run = get().liveRun;
+          return run ? wywolajLive({ krok: "wyplata", run }) : null;
+        },
+        (r) =>
+          set((s) => ({
+            liveSig: { ...s.liveSig, wyplata: r.sig },
+            escrow: [
+              { id: `payout-${PRACOWNIK.numer}`, czas: zegar(), opis: `Payout to wallet · ${PRACOWNIK.numer}`, kwota: s.bonus, status: "released", sig: r.sig, naLancuchu: true },
+              ...s.escrow,
+            ],
+          })),
+      );
       pozniej(2600, () => {
         const s = get();
         const omZmiany = NAGRODY_ZMIANY.reduce((a, n) => a + n.om, 0) + NAGRODA_SERII.om;
@@ -292,5 +371,17 @@ export const useSymulacja = create<Stan>((set, get) => {
 
     przelaczKonsole: () => set((s) => ({ konsolaUkryta: !s.konsolaUkryta })),
     zgasToast: (id) => set((s) => ({ toasty: s.toasty.filter((t) => t.id !== id) })),
+
+    sprawdzLive: (wlacz) => {
+      liveNaSerwerze().then((ok) => set((s) => ({ liveDostepny: ok, live: ok && (wlacz ?? s.live) })));
+    },
+
+    /* Przełączenie zaczyna pokaz od nowa, żeby nie mieszać symulowanego
+     * i prawdziwego przebiegu. */
+    przelaczLive: () => {
+      if (!get().liveDostepny) return;
+      set((s) => ({ live: !s.live }));
+      get().reset();
+    },
   };
 });

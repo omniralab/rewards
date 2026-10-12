@@ -6,6 +6,7 @@ import { Check, ChevronLeft, Clock, ExternalLink, LoaderCircle, Lock, LogOut, Ma
 import { useSymulacja } from "@/lib/symulacja";
 import { FIRMA, NAGRODA_SERII, NAGRODY_ZMIANY, PRACOWNIK, ZMIANA, liczba, podpis, poziom, skrot, usdc } from "@/lib/dane";
 import { NaSolanie, SolanaZnak, UsdcZnak } from "../marka";
+import { PROGRAM_LIVE, explorerTx } from "@/lib/live/klient";
 import { Karta, KwotaUsdc, Label, Om, Pasek, Przycisk } from "./wspolne";
 
 function Pasek_({ tytul, onWstecz }: { tytul: string; onWstecz: () => void }) {
@@ -96,7 +97,10 @@ export function EkranEscrow() {
       clearTimeout(b);
     };
   }, []);
-  const sig = podpis(`lock-${PRACOWNIK.numer}`);
+  // Live: prawdziwa blokada na devnecie; zanim się potwierdzi - „confirming".
+  const sigLive = s.live && !s.liveBlad ? s.liveSig.blokada : undefined;
+  const czekaNaLancuch = s.live && !s.liveBlad && !sigLive;
+  const sig = sigLive ?? podpis(`lock-${PRACOWNIK.numer}`);
   return (
     <div className="flex min-h-full flex-col gap-4">
       <Pasek_ tytul="Shift accepted" onWstecz={s.zamknijEkran} />
@@ -135,7 +139,13 @@ export function EkranEscrow() {
         <div className="flex items-center justify-between border-t border-hair pt-3">
           <div>
             <div className="label !text-[10px]">Escrow transaction</div>
-            <div className="mono mt-0.5 text-[12px]">{krok >= 2 ? skrot(sig, 8, 8) : "pending…"}</div>
+            {krok >= 2 && sigLive ? (
+              <a href={explorerTx(sigLive)} target="_blank" rel="noreferrer" className="mono mt-0.5 inline-flex items-center gap-1 text-[12px] text-positive">
+                {skrot(sigLive, 8, 8)} <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : (
+              <div className="mono mt-0.5 text-[12px]">{krok < 2 ? "pending…" : czekaNaLancuch ? "confirming on devnet…" : skrot(sig, 8, 8)}</div>
+            )}
           </div>
           <NaSolanie />
         </div>
@@ -295,22 +305,40 @@ export function EkranRozliczenia() {
   );
 }
 
-/* Arkusz udający podgląd eksploratora. Prawdziwego linku nie dajemy:
- * podpis jest zmyślony i eksplorer zwróciłby 404. */
+/* Arkusz udający podgląd eksploratora. W symulacji prawdziwego linku nie
+ * dajemy: podpis jest zmyślony i eksplorer zwróciłby 404. W trybie Live
+ * pokazujemy prawdziwą wypłatę z devnetu i link do Solana Explorer. */
 function ArkuszTransakcji({ onZamknij }: { onZamknij: () => void }) {
   const bonus = useSymulacja((s) => s.bonus);
-  const sig = podpis(`release-${PRACOWNIK.numer}`);
-  const wiersze: [string, string][] = [
-    ["Signature", skrot(sig, 10, 10)],
-    ["Status", "Finalized"],
-    ["Slot", "318,442,907"],
-    ["Block time", "Oct 5, 2026 · 22:03:41"],
-    ["Fee", "0.000005 SOL"],
-    ["Program", "Omnira Escrow · OMNesc…8vKp"],
-    ["From", "Escrow PDA · 3hQw…Lm2T"],
-    ["To", skrot(PRACOWNIK.portfel, 6, 6)],
-    ["Amount", `${usdc(bonus)} USDC`],
-  ];
+  const sigLive = useSymulacja((s) => (s.live && !s.liveBlad ? s.liveSig.wyplata : undefined));
+  const czeka = useSymulacja((s) => s.live && !s.liveBlad && !s.liveSig.wyplata);
+  const sig = sigLive ?? podpis(`release-${PRACOWNIK.numer}`);
+  const wiersze: [string, string][] = czeka
+    ? [
+        ["Signature", "confirming on devnet…"],
+        ["Network", "Solana devnet"],
+        ["Amount", `${usdc(bonus)} tUSDC`],
+      ]
+    : sigLive
+    ? [
+        ["Signature", skrot(sig, 10, 10)],
+        ["Status", "Confirmed"],
+        ["Network", "Solana devnet"],
+        ["Program", `Omnira Escrow · ${skrot(PROGRAM_LIVE, 6, 4)}`],
+        ["Token", "tUSDC (devnet test token)"],
+        ["Amount", `${usdc(bonus)} tUSDC`],
+      ]
+    : [
+        ["Signature", skrot(sig, 10, 10)],
+        ["Status", "Finalized"],
+        ["Slot", "318,442,907"],
+        ["Block time", "Oct 5, 2026 · 22:03:41"],
+        ["Fee", "0.000005 SOL"],
+        ["Program", "Omnira Escrow · OMNesc…8vKp"],
+        ["From", "Escrow PDA · 3hQw…Lm2T"],
+        ["To", skrot(PRACOWNIK.portfel, 6, 6)],
+        ["Amount", `${usdc(bonus)} USDC`],
+      ];
   return (
     <div className="absolute inset-0 z-20 flex flex-col justify-end">
       <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={onZamknij} className="absolute inset-0 bg-black/30" aria-label="Close" />
@@ -331,6 +359,11 @@ function ArkuszTransakcji({ onZamknij }: { onZamknij: () => void }) {
             </div>
           ))}
         </div>
+        {sigLive ? (
+          <a href={explorerTx(sigLive)} target="_blank" rel="noreferrer" className="mt-4 flex items-center justify-center gap-2 rounded-[12px] border border-line py-3 text-[14px] font-semibold">
+            Open in Solana Explorer <ExternalLink className="h-4 w-4" />
+          </a>
+        ) : null}
       </motion.div>
     </div>
   );
